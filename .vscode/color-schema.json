@@ -1,0 +1,33 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Traditional Color List Schema",
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "description": "色名（日本語名とルビ）"
+            },
+            "r": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 255,
+                "description": "赤の成分 (0-255)"
+            },
+            "g": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 255,
+                "description": "緑の成分 (0-255)"
+            },
+            "b": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 255,
+                "description": "青の成分 (0-255)"
+            }
+        },
+        "required": ["name", "r", "g", "b"]
+    }
+}

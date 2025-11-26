@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>色抽出カードメーカー</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        
+        <div class="controls-panel">
+            <h1>色抽出カードメーカー</h1>
+            
+            <div class="input-section">
+                <h2>1. 画像をアップロード & トリミング</h2>
+                <input type="file" id="imageUpload" accept="image/*">
+                
+                <div class="trimming-area">
+                    <canvas id="trimmingCanvas"></canvas>
+                </div>
+                <button id="confirmTrimBtn" disabled>トリミング確定 (スポイトへ)</button>
+            </div>
+
+            <div class="input-section">
+                <h2>2. スポイトで色を指定</h2>
+                <p id="spuitInfo">画像をクリックすると、その場所の色を抽出します。</p>
+                
+                <div class="color-preview">
+                    <span id="extractedColorSample" style="background-color: #eee;"></span>
+                    <span id="extractedRgbValue">R:--- G:--- B:---</span>
+                </div>
+                <div id="closestColorName"></div>
+            </div>
+
+            <div class="input-section">
+                <h2>3. タイトルとコメントを入力</h2>
+                <label for="cardTitle">タイトル:</label>
+                <input type="text" id="cardTitle" placeholder="例: イチョウ" value="イチョウ">
+                <label for="cardComment">コメント:</label>
+                <input type="text" id="cardComment" placeholder="例: 旅先で会いました" value="旅先で会いました">
+            </div>
+
+            <div class="input-section">
+                <h2>4. カードをダウンロード</h2>
+                <button id="downloadCardBtn" disabled>カードをダウンロード (PNG)</button>
+            </div>
+        </div>
+
+        
+        <div class="preview-panel">
+            <h2>カードプレビュー</h2>
+            <div class="card-preview">
+                <canvas id="cardOutputCanvas"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

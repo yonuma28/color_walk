@@ -1,0 +1,9 @@
+// .vscode/settings.json
+{
+    "json.schemas": [
+        {
+            "fileMatch": ["colors.json"], // ★ 対象ファイル
+            "url": "./color-schema.json"  // ★ 作成したスキーマファイルへのパス
+        }
+    ]
+}
