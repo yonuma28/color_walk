@@ -504,17 +504,74 @@ document.addEventListener('DOMContentLoaded', () => {
         redrawTrimmingCanvas();
     }
 
+    // --- 座標取得用の補助関数 ---
+    function getCanvasCoordinates(e) {
+        let clientX, clientY;
+        if (e.touches && e.touches.length > 0) {
+            clientX = e.touches[0].clientX;
+            clientY = e.touches[0].clientY;
+        } else {
+            clientX = e.clientX;
+            clientY = e.clientY;
+        }
+        const rect = trimmingCanvas.getBoundingClientRect();
+        return {
+            x: clientX - rect.left,
+            y: clientY - rect.top
+        };
+    }
+
+    // --- ハンドラの修正 ---
+    function handleMouseDown(e) {
+        if (!originalImage || isTrimmingConfirmed) return;
+        isDragging = true;
+        const coords = getCanvasCoordinates(e);
+        lastX = coords.x;
+        lastY = coords.y;
+        trimmingCanvas.style.cursor = 'grabbing';
+    }
+
+    function handleMouseMove(e) {
+        if (!isDragging || !originalImage || isTrimmingConfirmed) return;
+        
+        // タッチ操作時のスクロールを防止
+        if (e.cancelable) e.preventDefault();
+
+        const coords = getCanvasCoordinates(e);
+        const dx = coords.x - lastX;
+        const dy = coords.y - lastY;
+        
+        trimRect.offsetX += dx;
+        trimRect.offsetY += dy;
+        
+        redrawTrimmingCanvas();
+        
+        lastX = coords.x;
+        lastY = coords.y;
+    }
+
+    // --- リスナー登録の修正 ---
     function attachTrimmingListeners() {
+        // マウス
         trimmingCanvas.addEventListener('mousedown', handleMouseDown);
         trimmingCanvas.addEventListener('mousemove', handleMouseMove);
+        // タッチ
+        trimmingCanvas.addEventListener('touchstart', handleMouseDown, { passive: false });
+        trimmingCanvas.addEventListener('touchmove', handleMouseMove, { passive: false });
+        trimmingCanvas.addEventListener('touchend', handleMouseUp);
+
         document.addEventListener('mouseup', handleMouseUp);
         trimmingCanvas.addEventListener('wheel', handleWheel);
         trimmingCanvas.style.cursor = 'grab';
     }
-    
+
     function detachTrimmingListeners() {
         trimmingCanvas.removeEventListener('mousedown', handleMouseDown);
         trimmingCanvas.removeEventListener('mousemove', handleMouseMove);
+        trimmingCanvas.removeEventListener('touchstart', handleMouseDown);
+        trimmingCanvas.removeEventListener('touchmove', handleMouseMove);
+        trimmingCanvas.removeEventListener('touchend', handleMouseUp);
+
         document.removeEventListener('mouseup', handleMouseUp);
         trimmingCanvas.removeEventListener('wheel', handleWheel);
         trimmingCanvas.style.cursor = 'default';

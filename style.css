@@ -15,6 +15,15 @@
     font-style: normal;
 }
 
+/* トリミングエリアのキャンバス */
+#trimmingCanvas {
+    max-width: 100%;
+    max-height: 100%;
+    display: block;
+    /* タッチによるブラウザ既定の動作（スクロールなど）を禁止する */
+    touch-action: none;
+}
+
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     margin: 0;
