@@ -592,6 +592,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let isDragging = false;
     let lastX = 0;
     let lastY = 0;
+
+    // Pointer Events 用（スマホでのピンチズームを安定させる）
+    const activePointers = new Map();
+    let panLast = null;
     
     // --- ピンチズーム状態 ---
     let initialPinchDistance = null;
@@ -603,6 +607,102 @@ document.addEventListener('DOMContentLoaded', () => {
     // 2点間の距離を計算する関数
     function getDistance(touches) {
         return Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
+    }
+
+    function getPointerDistance() {
+        const pts = Array.from(activePointers.values());
+        if (pts.length < 2) return null;
+        return Math.hypot(pts[0].clientX - pts[1].clientX, pts[0].clientY - pts[1].clientY);
+    }
+
+    function getPointerCenterCanvas() {
+        const pts = Array.from(activePointers.values());
+        if (pts.length < 2) return null;
+        const centerClientX = (pts[0].clientX + pts[1].clientX) / 2;
+        const centerClientY = (pts[0].clientY + pts[1].clientY) / 2;
+        return getCanvasCoordinates({ clientX: centerClientX, clientY: centerClientY });
+    }
+
+    function handlePointerDown(e) {
+        if (!originalImage || isTrimmingConfirmed) return;
+        if (e.cancelable) e.preventDefault();
+
+        trimmingCanvas.setPointerCapture?.(e.pointerId);
+        activePointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+        isDragging = true;
+
+        if (activePointers.size === 1) {
+            panLast = getCanvasCoordinates(e);
+        } else if (activePointers.size === 2) {
+            initialPinchDistance = getPointerDistance();
+            pinchStartScale = trimRect.scale;
+            pinchStartOffsetX = trimRect.offsetX;
+            pinchStartOffsetY = trimRect.offsetY;
+            pinchStartCenter = getPointerCenterCanvas();
+        }
+
+        trimmingCanvas.style.cursor = 'grabbing';
+    }
+
+    function handlePointerMove(e) {
+        if (!isDragging || !originalImage || isTrimmingConfirmed) return;
+        if (!activePointers.has(e.pointerId)) return;
+        if (e.cancelable) e.preventDefault();
+
+        activePointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+
+        if (activePointers.size === 2) {
+            const currentDistance = getPointerDistance();
+            if (!initialPinchDistance || !pinchStartScale || !pinchStartCenter || !currentDistance) return;
+
+            const pinchRatio = currentDistance / initialPinchDistance;
+            const nextScale = pinchStartScale * pinchRatio;
+            const scaleRatio = nextScale / pinchStartScale;
+            trimRect.scale = nextScale;
+            trimRect.offsetX = pinchStartCenter.x - (pinchStartCenter.x - pinchStartOffsetX) * scaleRatio;
+            trimRect.offsetY = pinchStartCenter.y - (pinchStartCenter.y - pinchStartOffsetY) * scaleRatio;
+            redrawTrimmingCanvas();
+            return;
+        }
+
+        if (activePointers.size === 1) {
+            const coords = getCanvasCoordinates(e);
+            if (panLast) {
+                const dx = coords.x - panLast.x;
+                const dy = coords.y - panLast.y;
+                trimRect.offsetX += dx;
+                trimRect.offsetY += dy;
+                redrawTrimmingCanvas();
+            }
+            panLast = coords;
+        }
+    }
+
+    function handlePointerUp(e) {
+        if (!activePointers.has(e.pointerId)) return;
+        activePointers.delete(e.pointerId);
+
+        if (activePointers.size < 2) {
+            initialPinchDistance = null;
+            pinchStartScale = null;
+            pinchStartOffsetX = null;
+            pinchStartOffsetY = null;
+            pinchStartCenter = null;
+        }
+
+        if (activePointers.size === 1) {
+            // 残った指でそのままパンできるようにする
+            const remaining = Array.from(activePointers.values())[0];
+            panLast = getCanvasCoordinates({ clientX: remaining.clientX, clientY: remaining.clientY });
+        }
+
+        if (activePointers.size === 0) {
+            isDragging = false;
+            panLast = null;
+            trimmingCanvas.style.cursor = 'grab';
+            adjustBoundary();
+            redrawTrimmingCanvas();
+        }
     }
 
     function handleMouseDown(e) {
@@ -715,27 +815,43 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- リスナー登録の修正 ---
     function attachTrimmingListeners() {
-        // マウス
-        trimmingCanvas.addEventListener('mousedown', handleMouseDown);
-        trimmingCanvas.addEventListener('mousemove', handleMouseMove);
-        // タッチ
-        trimmingCanvas.addEventListener('touchstart', handleMouseDown, { passive: false });
-        trimmingCanvas.addEventListener('touchmove', handleMouseMove, { passive: false });
-        trimmingCanvas.addEventListener('touchend', handleMouseUp);
+        if (window.PointerEvent) {
+            trimmingCanvas.addEventListener('pointerdown', handlePointerDown, { passive: false });
+            trimmingCanvas.addEventListener('pointermove', handlePointerMove, { passive: false });
+            trimmingCanvas.addEventListener('pointerup', handlePointerUp, { passive: false });
+            trimmingCanvas.addEventListener('pointercancel', handlePointerUp, { passive: false });
+        } else {
+            // マウス
+            trimmingCanvas.addEventListener('mousedown', handleMouseDown);
+            trimmingCanvas.addEventListener('mousemove', handleMouseMove);
+            // タッチ
+            trimmingCanvas.addEventListener('touchstart', handleMouseDown, { passive: false });
+            trimmingCanvas.addEventListener('touchmove', handleMouseMove, { passive: false });
+            trimmingCanvas.addEventListener('touchend', handleMouseUp);
+            document.addEventListener('mouseup', handleMouseUp);
+        }
 
-        document.addEventListener('mouseup', handleMouseUp);
         trimmingCanvas.addEventListener('wheel', handleWheel);
         trimmingCanvas.style.cursor = 'grab';
     }
 
     function detachTrimmingListeners() {
-        trimmingCanvas.removeEventListener('mousedown', handleMouseDown);
-        trimmingCanvas.removeEventListener('mousemove', handleMouseMove);
-        trimmingCanvas.removeEventListener('touchstart', handleMouseDown);
-        trimmingCanvas.removeEventListener('touchmove', handleMouseMove);
-        trimmingCanvas.removeEventListener('touchend', handleMouseUp);
+        if (window.PointerEvent) {
+            trimmingCanvas.removeEventListener('pointerdown', handlePointerDown);
+            trimmingCanvas.removeEventListener('pointermove', handlePointerMove);
+            trimmingCanvas.removeEventListener('pointerup', handlePointerUp);
+            trimmingCanvas.removeEventListener('pointercancel', handlePointerUp);
+            activePointers.clear();
+            panLast = null;
+        } else {
+            trimmingCanvas.removeEventListener('mousedown', handleMouseDown);
+            trimmingCanvas.removeEventListener('mousemove', handleMouseMove);
+            trimmingCanvas.removeEventListener('touchstart', handleMouseDown);
+            trimmingCanvas.removeEventListener('touchmove', handleMouseMove);
+            trimmingCanvas.removeEventListener('touchend', handleMouseUp);
+            document.removeEventListener('mouseup', handleMouseUp);
+        }
 
-        document.removeEventListener('mouseup', handleMouseUp);
         trimmingCanvas.removeEventListener('wheel', handleWheel);
         trimmingCanvas.style.cursor = 'default';
     }
