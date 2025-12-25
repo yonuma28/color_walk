@@ -458,36 +458,77 @@ document.addEventListener('DOMContentLoaded', () => {
     let lastX = 0;
     let lastY = 0;
     
+    // --- ズーム・パン状態管理用の変数を追加 ---
+    let initialPinchDistance = null;
+
+    // 2点間の距離を計算する関数
+    function getDistance(touches) {
+        return Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
+    }
+
+    // --- ハンドラの修正 ---
     function handleMouseDown(e) {
         if (!originalImage || isTrimmingConfirmed) return;
         isDragging = true;
-        lastX = e.offsetX;
-        lastY = e.offsetY;
+
+        if (e.touches && e.touches.length === 2) {
+            // ピンチズーム開始
+            initialPinchDistance = getDistance(e.touches);
+        } else {
+            // 通常のパン開始
+            const coords = getCanvasCoordinates(e);
+            lastX = coords.x;
+            lastY = coords.y;
+        }
         trimmingCanvas.style.cursor = 'grabbing';
     }
 
     function handleMouseMove(e) {
         if (!isDragging || !originalImage || isTrimmingConfirmed) return;
-        
-        const dx = e.offsetX - lastX;
-        const dy = e.offsetY - lastY;
-        
-        trimRect.offsetX += dx;
-        trimRect.offsetY += dy;
-        
-        redrawTrimmingCanvas();
-        
-        lastX = e.offsetX;
-        lastY = e.offsetY;
-    }
-    
-    function handleMouseUp() {
-        if (isDragging) {
-            isDragging = false;
-            trimmingCanvas.style.cursor = 'grab';
-            adjustBoundary(); 
+        if (e.cancelable) e.preventDefault();
+
+        if (e.touches && e.touches.length === 2) {
+            // --- ピンチズーム処理 ---
+            const currentDistance = getDistance(e.touches);
+            if (initialPinchDistance) {
+                const pinchScale = currentDistance / initialPinchDistance;
+                const scaleChange = pinchScale > 1 ? 1.03 : 0.97; // 変化を滑らかにするための係数
+
+                // 中心点を基準にズーム（簡易的に2本の指の中間点を取るのが理想だが、ここでは中心固定）
+                const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+                const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+                const rect = trimmingCanvas.getBoundingClientRect();
+                const canvasX = centerX - rect.left;
+                const canvasY = centerY - rect.top;
+
+                trimRect.offsetX -= (canvasX - trimRect.offsetX) * (scaleChange - 1);
+                trimRect.offsetY -= (canvasY - trimRect.offsetY) * (scaleChange - 1);
+                trimRect.scale *= scaleChange;
+
+                initialPinchDistance = currentDistance; // 距離を更新
+                redrawTrimmingCanvas();
+            }
+        } else if (e.touches && e.touches.length === 1 || !e.touches) {
+            // --- 通常のパン（移動）処理 ---
+            const coords = getCanvasCoordinates(e);
+            const dx = coords.x - lastX;
+            const dy = coords.y - lastY;
+
+            trimRect.offsetX += dx;
+            trimRect.offsetY += dy;
+
+            lastX = coords.x;
+            lastY = coords.y;
             redrawTrimmingCanvas();
         }
+    }
+
+    function handleMouseUp() {
+        isDragging = false;
+        initialPinchDistance = null; // ピンチ状態をリセット
+        trimmingCanvas.style.cursor = 'grab';
+        adjustBoundary();
+        redrawTrimmingCanvas();
     }
     
     function handleWheel(e) {

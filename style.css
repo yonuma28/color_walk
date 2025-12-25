@@ -15,13 +15,11 @@
     font-style: normal;
 }
 
-/* トリミングエリアのキャンバス */
 #trimmingCanvas {
-    max-width: 100%;
-    max-height: 100%;
-    display: block;
-    /* タッチによるブラウザ既定の動作（スクロールなど）を禁止する */
-    touch-action: none;
+    touch-action: none; /* ブラウザ標準のズーム・スクロールを完全に無効化 */
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
 }
 
 body {
