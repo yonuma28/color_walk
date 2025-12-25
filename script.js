@@ -12,8 +12,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const downloadCardBtn = document.getElementById('downloadCardBtn');
     const cardOutputCanvas = document.getElementById('cardOutputCanvas');
 
+    const magnifierEl = document.getElementById('magnifier');
+    const magnifierCanvas = document.getElementById('magnifierCanvas');
+
     const trimmingCtx = trimmingCanvas.getContext('2d');
     const cardOutputCtx = cardOutputCanvas.getContext('2d');
+
+    // トリミング表示用Canvasとは別に、画像のみを描くオフスクリーンCanvasを用意（スポイト/拡大鏡の精度向上）
+    const imageOnlyCanvas = document.createElement('canvas');
+    const imageOnlyCtx = imageOnlyCanvas.getContext('2d');
+
+    const magnifierCtx = magnifierCanvas ? magnifierCanvas.getContext('2d') : null;
 
     // --- グローバル変数 (状態管理) ---
     let originalImage = null;
@@ -30,6 +39,8 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // 定数
     const CANVAS_SIZE = 400; 
+    const MAG_SIZE = 140;
+    const MAG_ZOOM = 4;
     const DPI_SCALE = 3; // 1mm = 3px に設定 (A4表示のバランス調整のため)
 
     // A4の寸法 (mm)
@@ -50,6 +61,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // Canvas初期設定
     trimmingCanvas.width = CANVAS_SIZE;
     trimmingCanvas.height = CANVAS_SIZE;
+    imageOnlyCanvas.width = CANVAS_SIZE;
+    imageOnlyCanvas.height = CANVAS_SIZE;
+
+    if (magnifierCanvas) {
+        magnifierCanvas.width = MAG_SIZE;
+        magnifierCanvas.height = MAG_SIZE;
+    }
     cardOutputCanvas.width = CARD_WIDTH;
     cardOutputCanvas.height = CARD_HEIGHT;
 
@@ -269,18 +287,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // 1. Canvasをクリア
         trimmingCtx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-        
-        // 2. 画像を描画 (純粋な画像のみ)
+        imageOnlyCtx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+        // 2. 画像を描画（画像のみのCanvasと表示Canvasの両方に反映）
         const drawW = trimRect.originalImgW * trimRect.scale;
         const drawH = trimRect.originalImgH * trimRect.scale;
-        
-        trimmingCtx.drawImage(
-            originalImage, 
-            trimRect.offsetX, 
-            trimRect.offsetY, 
-            drawW, 
-            drawH
-        );
+
+        imageOnlyCtx.drawImage(originalImage, trimRect.offsetX, trimRect.offsetY, drawW, drawH);
+        trimmingCtx.drawImage(imageOnlyCanvas, 0, 0);
 
         // 3. オーバーレイと補助線を描画
         drawTrimmingOverlay();
@@ -311,24 +325,145 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- II. スポイト機能とプレビュー ---
     // ----------------------------------------------------
 
-    function handleCanvasClick(e) {
-        if (!isTrimmingConfirmed || !originalImage) return;
-
-        const x = e.offsetX;
-        const y = e.offsetY;
-
-        const pixelData = trimmingCtx.getImageData(x, y, 1, 1).data;
+    function updateExtractedColorAt(x, y) {
+        const pixelData = imageOnlyCtx.getImageData(x, y, 1, 1).data;
         const r = pixelData[0];
         const g = pixelData[1];
         const b = pixelData[2];
-        
+
         extractedRgb = { r, g, b };
-        
         extractedColorSample.style.backgroundColor = `rgb(${r}, ${g}, ${b})`;
         extractedRgbValue.textContent = `R:${r} G:${g} B:${b}`;
+    }
 
-        findClosestColorName(r, g, b);
-        updateFinalCardPreview(); 
+    function finalizeExtractedColorAt(x, y) {
+        updateExtractedColorAt(x, y);
+        findClosestColorName(extractedRgb.r, extractedRgb.g, extractedRgb.b);
+        updateFinalCardPreview();
+    }
+
+    function showMagnifier() {
+        if (!magnifierEl) return;
+        magnifierEl.style.display = 'block';
+    }
+
+    function hideMagnifier() {
+        if (!magnifierEl) return;
+        magnifierEl.style.display = 'none';
+    }
+
+    function positionMagnifierByClient(clientX, clientY) {
+        if (!magnifierEl) return;
+        const rect = trimmingCanvas.getBoundingClientRect();
+
+        // 指に被らないように少しずらす（右上へ）
+        const desiredX = (clientX - rect.left) + 18;
+        const desiredY = (clientY - rect.top) - 18 - MAG_SIZE;
+
+        const x = Math.max(0, Math.min(rect.width - MAG_SIZE, desiredX));
+        const y = Math.max(0, Math.min(rect.height - MAG_SIZE, desiredY));
+
+        magnifierEl.style.left = `${x}px`;
+        magnifierEl.style.top = `${y}px`;
+    }
+
+    function drawMagnifierAt(canvasX, canvasY) {
+        if (!magnifierCtx) return;
+
+        const srcSize = MAG_SIZE / MAG_ZOOM;
+        const half = srcSize / 2;
+        const sx = Math.max(0, Math.min(CANVAS_SIZE - srcSize, canvasX - half));
+        const sy = Math.max(0, Math.min(CANVAS_SIZE - srcSize, canvasY - half));
+
+        magnifierCtx.clearRect(0, 0, MAG_SIZE, MAG_SIZE);
+        magnifierCtx.imageSmoothingEnabled = false;
+        magnifierCtx.drawImage(imageOnlyCanvas, sx, sy, srcSize, srcSize, 0, 0, MAG_SIZE, MAG_SIZE);
+
+        // 十字（中心を狙いやすくする）
+        magnifierCtx.imageSmoothingEnabled = true;
+        magnifierCtx.strokeStyle = 'rgba(0,0,0,0.8)';
+        magnifierCtx.lineWidth = 1;
+        magnifierCtx.beginPath();
+        magnifierCtx.moveTo(MAG_SIZE / 2, 0);
+        magnifierCtx.lineTo(MAG_SIZE / 2, MAG_SIZE);
+        magnifierCtx.moveTo(0, MAG_SIZE / 2);
+        magnifierCtx.lineTo(MAG_SIZE, MAG_SIZE / 2);
+        magnifierCtx.stroke();
+    }
+
+    // スポイト（タッチ/ポインタ対応）
+    let isEyedropperActive = false;
+
+    function getEventClientPoint(e) {
+        if (e.touches && e.touches.length > 0) return e.touches[0];
+        if (e.changedTouches && e.changedTouches.length > 0) return e.changedTouches[0];
+        return e;
+    }
+
+    function handleEyedropperMove(e) {
+        if (!isTrimmingConfirmed || !originalImage || !isEyedropperActive) return;
+        if (e.cancelable) e.preventDefault();
+
+        const coords = getCanvasCoordinates(e);
+        updateExtractedColorAt(coords.x, coords.y);
+        drawMagnifierAt(coords.x, coords.y);
+
+        const pt = getEventClientPoint(e);
+        if (pt && typeof pt.clientX === 'number' && typeof pt.clientY === 'number') {
+            positionMagnifierByClient(pt.clientX, pt.clientY);
+        }
+    }
+
+    function handleEyedropperStart(e) {
+        if (!isTrimmingConfirmed || !originalImage) return;
+        isEyedropperActive = true;
+        showMagnifier();
+        handleEyedropperMove(e);
+    }
+
+    function handleEyedropperEnd(e) {
+        if (!isTrimmingConfirmed || !originalImage) return;
+        if (e.cancelable) e.preventDefault();
+
+        const coords = getCanvasCoordinates(e);
+        finalizeExtractedColorAt(coords.x, coords.y);
+
+        isEyedropperActive = false;
+        hideMagnifier();
+    }
+
+    function attachEyedropperListeners() {
+        if (window.PointerEvent) {
+            trimmingCanvas.addEventListener('pointerdown', handleEyedropperStart, { passive: false });
+            trimmingCanvas.addEventListener('pointermove', handleEyedropperMove, { passive: false });
+            trimmingCanvas.addEventListener('pointerup', handleEyedropperEnd, { passive: false });
+            trimmingCanvas.addEventListener('pointercancel', handleEyedropperEnd, { passive: false });
+        } else {
+            trimmingCanvas.addEventListener('touchstart', handleEyedropperStart, { passive: false });
+            trimmingCanvas.addEventListener('touchmove', handleEyedropperMove, { passive: false });
+            trimmingCanvas.addEventListener('touchend', handleEyedropperEnd, { passive: false });
+            trimmingCanvas.addEventListener('mousedown', handleEyedropperStart);
+            trimmingCanvas.addEventListener('mousemove', handleEyedropperMove);
+            document.addEventListener('mouseup', handleEyedropperEnd);
+        }
+    }
+
+    function detachEyedropperListeners() {
+        if (window.PointerEvent) {
+            trimmingCanvas.removeEventListener('pointerdown', handleEyedropperStart);
+            trimmingCanvas.removeEventListener('pointermove', handleEyedropperMove);
+            trimmingCanvas.removeEventListener('pointerup', handleEyedropperEnd);
+            trimmingCanvas.removeEventListener('pointercancel', handleEyedropperEnd);
+        } else {
+            trimmingCanvas.removeEventListener('touchstart', handleEyedropperStart);
+            trimmingCanvas.removeEventListener('touchmove', handleEyedropperMove);
+            trimmingCanvas.removeEventListener('touchend', handleEyedropperEnd);
+            trimmingCanvas.removeEventListener('mousedown', handleEyedropperStart);
+            trimmingCanvas.removeEventListener('mousemove', handleEyedropperMove);
+            document.removeEventListener('mouseup', handleEyedropperEnd);
+        }
+        hideMagnifier();
+        isEyedropperActive = false;
     }
 
     /**
@@ -458,15 +593,18 @@ document.addEventListener('DOMContentLoaded', () => {
     let lastX = 0;
     let lastY = 0;
     
-    // --- ズーム・パン状態管理用の変数を追加 ---
+    // --- ピンチズーム状態 ---
     let initialPinchDistance = null;
+    let pinchStartScale = null;
+    let pinchStartOffsetX = null;
+    let pinchStartOffsetY = null;
+    let pinchStartCenter = null;
 
     // 2点間の距離を計算する関数
     function getDistance(touches) {
         return Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
     }
 
-    // --- ハンドラの修正 ---
     function handleMouseDown(e) {
         if (!originalImage || isTrimmingConfirmed) return;
         isDragging = true;
@@ -474,6 +612,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.touches && e.touches.length === 2) {
             // ピンチズーム開始
             initialPinchDistance = getDistance(e.touches);
+            pinchStartScale = trimRect.scale;
+            pinchStartOffsetX = trimRect.offsetX;
+            pinchStartOffsetY = trimRect.offsetY;
+
+            const centerClientX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+            const centerClientY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+            pinchStartCenter = getCanvasCoordinates({ clientX: centerClientX, clientY: centerClientY });
         } else {
             // 通常のパン開始
             const coords = getCanvasCoordinates(e);
@@ -488,27 +633,20 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.cancelable) e.preventDefault();
 
         if (e.touches && e.touches.length === 2) {
-            // --- ピンチズーム処理 ---
             const currentDistance = getDistance(e.touches);
-            if (initialPinchDistance) {
-                const pinchScale = currentDistance / initialPinchDistance;
-                const scaleChange = pinchScale > 1 ? 1.03 : 0.97; // 変化を滑らかにするための係数
+            if (!initialPinchDistance || !pinchStartScale || !pinchStartCenter) return;
 
-                // 中心点を基準にズーム（簡易的に2本の指の中間点を取るのが理想だが、ここでは中心固定）
-                const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-                const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-                const rect = trimmingCanvas.getBoundingClientRect();
-                const canvasX = centerX - rect.left;
-                const canvasY = centerY - rect.top;
+            const pinchRatio = currentDistance / initialPinchDistance;
+            const nextScale = pinchStartScale * pinchRatio;
 
-                trimRect.offsetX -= (canvasX - trimRect.offsetX) * (scaleChange - 1);
-                trimRect.offsetY -= (canvasY - trimRect.offsetY) * (scaleChange - 1);
-                trimRect.scale *= scaleChange;
+            // ピンチ中心を固定して拡大縮小（中心点に対する相対位置を維持）
+            const scaleRatio = nextScale / pinchStartScale;
+            trimRect.scale = nextScale;
+            trimRect.offsetX = pinchStartCenter.x - (pinchStartCenter.x - pinchStartOffsetX) * scaleRatio;
+            trimRect.offsetY = pinchStartCenter.y - (pinchStartCenter.y - pinchStartOffsetY) * scaleRatio;
 
-                initialPinchDistance = currentDistance; // 距離を更新
-                redrawTrimmingCanvas();
-            }
-        } else if (e.touches && e.touches.length === 1 || !e.touches) {
+            redrawTrimmingCanvas();
+        } else if ((e.touches && e.touches.length === 1) || !e.touches) {
             // --- 通常のパン（移動）処理 ---
             const coords = getCanvasCoordinates(e);
             const dx = coords.x - lastX;
@@ -525,7 +663,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function handleMouseUp() {
         isDragging = false;
-        initialPinchDistance = null; // ピンチ状態をリセット
+        initialPinchDistance = null;
+        pinchStartScale = null;
+        pinchStartOffsetX = null;
+        pinchStartOffsetY = null;
+        pinchStartCenter = null;
         trimmingCanvas.style.cursor = 'grab';
         adjustBoundary();
         redrawTrimmingCanvas();
@@ -536,9 +678,13 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
         
         const scaleChange = (e.deltaY < 0) ? 1.05 : 0.95;
-        
-        trimRect.offsetX -= (e.offsetX - trimRect.offsetX) * (scaleChange - 1);
-        trimRect.offsetY -= (e.offsetY - trimRect.offsetY) * (scaleChange - 1);
+
+        const rect = trimmingCanvas.getBoundingClientRect();
+        const canvasX = ((e.clientX - rect.left) * trimmingCanvas.width) / rect.width;
+        const canvasY = ((e.clientY - rect.top) * trimmingCanvas.height) / rect.height;
+
+        trimRect.offsetX -= (canvasX - trimRect.offsetX) * (scaleChange - 1);
+        trimRect.offsetY -= (canvasY - trimRect.offsetY) * (scaleChange - 1);
         
         trimRect.scale *= scaleChange;
         
@@ -551,44 +697,20 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.touches && e.touches.length > 0) {
             clientX = e.touches[0].clientX;
             clientY = e.touches[0].clientY;
+        } else if (e.changedTouches && e.changedTouches.length > 0) {
+            clientX = e.changedTouches[0].clientX;
+            clientY = e.changedTouches[0].clientY;
         } else {
             clientX = e.clientX;
             clientY = e.clientY;
         }
         const rect = trimmingCanvas.getBoundingClientRect();
+        const x = ((clientX - rect.left) * trimmingCanvas.width) / rect.width;
+        const y = ((clientY - rect.top) * trimmingCanvas.height) / rect.height;
         return {
-            x: clientX - rect.left,
-            y: clientY - rect.top
+            x: Math.max(0, Math.min(trimmingCanvas.width - 1, x)),
+            y: Math.max(0, Math.min(trimmingCanvas.height - 1, y))
         };
-    }
-
-    // --- ハンドラの修正 ---
-    function handleMouseDown(e) {
-        if (!originalImage || isTrimmingConfirmed) return;
-        isDragging = true;
-        const coords = getCanvasCoordinates(e);
-        lastX = coords.x;
-        lastY = coords.y;
-        trimmingCanvas.style.cursor = 'grabbing';
-    }
-
-    function handleMouseMove(e) {
-        if (!isDragging || !originalImage || isTrimmingConfirmed) return;
-        
-        // タッチ操作時のスクロールを防止
-        if (e.cancelable) e.preventDefault();
-
-        const coords = getCanvasCoordinates(e);
-        const dx = coords.x - lastX;
-        const dy = coords.y - lastY;
-        
-        trimRect.offsetX += dx;
-        trimRect.offsetY += dy;
-        
-        redrawTrimmingCanvas();
-        
-        lastX = coords.x;
-        lastY = coords.y;
     }
 
     // --- リスナー登録の修正 ---
@@ -626,6 +748,9 @@ document.addEventListener('DOMContentLoaded', () => {
     imageUpload.addEventListener('change', (e) => {
         const file = e.target.files[0];
         if (file) {
+            // 前回のスポイト状態をクリア
+            try { detachEyedropperListeners(); } catch (_) {}
+
             const reader = new FileReader();
             reader.onload = (event) => {
                 const img = new Image();
@@ -649,10 +774,11 @@ document.addEventListener('DOMContentLoaded', () => {
         isTrimmingConfirmed = true;
         confirmTrimBtn.disabled = true;
         detachTrimmingListeners(); 
-        
-        trimmingCanvas.addEventListener('click', handleCanvasClick);
+
+        // スポイト（拡大鏡つき）を有効化
+        attachEyedropperListeners();
         trimmingCanvas.style.cursor = 'crosshair';
-        spuitInfo.textContent = "画像をクリックし、色を抽出してください。";
+        spuitInfo.textContent = "画像をタップ/ドラッグして色を抽出します（指を離すと確定）。";
         
         updateFinalCardPreview(); 
     });
@@ -663,39 +789,38 @@ document.addEventListener('DOMContentLoaded', () => {
     downloadCardBtn.addEventListener('click', async () => {
         if (!finalColorInfo) return;
 
-        const dataURL = cardOutputCanvas.toDataURL('image/png');
-        
-        // --- スマホ向けの共有・保存機能の強化 ---
-        if (navigator.share && navigator.canShare) {
-            try {
-                // Blobに変換
-                const blob = await (await fetch(dataURL)).blob();
-                const file = new File([blob], `ColorCard_${finalColorInfo.name}.png`, { type: 'image/png' });
+        const blob = await new Promise((resolve) => cardOutputCanvas.toBlob(resolve, 'image/png'));
+        if (!blob) return;
 
-                if (navigator.canShare({ files: [file] })) {
+        const fileName = `ColorCard_${finalColorInfo.name}.png`;
+        const file = new File([blob], fileName, { type: 'image/png' });
+
+        // --- スマホ向けの共有（写真アプリへ保存導線） ---
+        // iOS/Androidの共有シートから「写真に保存」「画像を保存」等を選べます
+        if (navigator.share) {
+            try {
+                if (!navigator.canShare || navigator.canShare({ files: [file] })) {
                     await navigator.share({
                         files: [file],
                         title: '色抽出カード',
                         text: '色抽出カードを作成しました。'
                     });
-                } else {
-                    throw new Error('共有不可');
+                    return;
                 }
             } catch (err) {
-                // 共有に失敗した場合は従来のダウンロード処理
                 console.error('Share failed:', err);
-                const a = document.createElement('a');
-                a.href = dataURL;
-                a.download = `ColorCard_${finalColorInfo.name}.png`;
-                a.click();
             }
-        } else {
-            // PCブラウザ等の場合
-            const a = document.createElement('a');
-            a.href = dataURL;
-            a.download = `ColorCard_${finalColorInfo.name}.png`;
-            a.click();
         }
+
+        // フォールバック：通常ダウンロード（環境によっては新規タブで開いて保存）
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
     });
 
     // 初期化時
