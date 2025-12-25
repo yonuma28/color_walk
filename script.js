@@ -619,15 +619,41 @@ document.addEventListener('DOMContentLoaded', () => {
     cardTitleInput.addEventListener('input', updateFinalCardPreview);
     cardCommentInput.addEventListener('input', updateFinalCardPreview);
 
-    downloadCardBtn.addEventListener('click', () => {
-        if (finalColorInfo) {
-            const dataURL = cardOutputCanvas.toDataURL('image/png');
+    downloadCardBtn.addEventListener('click', async () => {
+        if (!finalColorInfo) return;
+
+        const dataURL = cardOutputCanvas.toDataURL('image/png');
+        
+        // --- スマホ向けの共有・保存機能の強化 ---
+        if (navigator.share && navigator.canShare) {
+            try {
+                // Blobに変換
+                const blob = await (await fetch(dataURL)).blob();
+                const file = new File([blob], `ColorCard_${finalColorInfo.name}.png`, { type: 'image/png' });
+
+                if (navigator.canShare({ files: [file] })) {
+                    await navigator.share({
+                        files: [file],
+                        title: '色抽出カード',
+                        text: '色抽出カードを作成しました。'
+                    });
+                } else {
+                    throw new Error('共有不可');
+                }
+            } catch (err) {
+                // 共有に失敗した場合は従来のダウンロード処理
+                console.error('Share failed:', err);
+                const a = document.createElement('a');
+                a.href = dataURL;
+                a.download = `ColorCard_${finalColorInfo.name}.png`;
+                a.click();
+            }
+        } else {
+            // PCブラウザ等の場合
             const a = document.createElement('a');
             a.href = dataURL;
             a.download = `ColorCard_${finalColorInfo.name}.png`;
-            document.body.appendChild(a);
             a.click();
-            document.body.removeChild(a);
         }
     });
 
