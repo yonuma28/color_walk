@@ -75,6 +75,38 @@ document.addEventListener('DOMContentLoaded', () => {
     let TRADITIONAL_COLORS = [];
     let colorsLoaded = false;
 
+    const hashtagInput = document.getElementById('hashtagInput');
+    const hashtagOutput = document.getElementById('hashtagOutput');
+    const copyBtn = document.getElementById('copyHashtagBtn');
+
+    hashtagInput.addEventListener('input', () => {
+        // 1. 入力内容を取得
+        const rawValue = hashtagInput.value;
+        
+        // 2. 改行（\n）で分割して配列にする
+        const lines = rawValue.split(/\r?\n/);
+        
+        // 3. 各行を処理
+        const formatted = lines
+            .map(line => line.trim())    // 前後の余計な空白を消す
+            .filter(line => line !== "") // 中身がある行だけ残す
+            .map(line => `#${line} `)    // 先頭に#、末尾に半角空白
+            .join("");                   // 全て繋げる
+        
+        // 4. 右側のエリアに反映
+        hashtagOutput.value = formatted;
+    });
+
+    // コピー機能（iOS/Android対応）
+    copyBtn.addEventListener('click', () => {
+        hashtagOutput.select(); // 視覚的に選択状態にする
+        navigator.clipboard.writeText(hashtagOutput.value).then(() => {
+            const originalText = copyBtn.textContent;
+            copyBtn.textContent = "コピー完了！";
+            setTimeout(() => copyBtn.textContent = originalText, 2000);
+        });
+    });
+
     async function loadColorsFromJson() {
         try {
             const res = await fetch('color.json', { cache: 'no-cache' });

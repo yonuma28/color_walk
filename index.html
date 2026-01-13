@@ -5,6 +5,38 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>色抽出カードメーカー</title>
     <link rel="stylesheet" href="style.css">
+    <style>
+        /* 追加機能用の簡易スタイル（既存のstyle.cssに追記してもOK） */
+        .hashtag-container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        #hashtagInput {
+            width: 100%;
+            height: 100px;
+            padding: 8px;
+            box-sizing: border-box;
+        }
+        #hashtagOutput {
+            background: #f0f0f0;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            word-break: break-all;
+            min-height: 1.2em;
+            border: 1px solid #ccc;
+        }
+        .copy-btn {
+            background-color: #333;
+            color: white;
+            padding: 8px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .copy-btn:active { background-color: #666; }
+    </style>
 </head>
 <body>
     <div class="app-container">
@@ -48,9 +80,20 @@
                 <h2>4. カードをダウンロード</h2>
                 <button id="downloadCardBtn" disabled>カードをダウンロード (PNG)</button>
             </div>
+
+            <div class="input-section">
+                <h2>5. インスタ用ハッシュタグ</h2>
+                <div class="hashtag-container">
+                    <label for="hashtagInput">単語を入力（改行キーで次のタグへ）:</label>
+                    <textarea id="hashtagInput" placeholder="風景&#10;旅行&#10;秋"></textarea>
+                    
+                    <label for="hashtagOutput">コピー用フォーマット:</label>
+                    <textarea id="hashtagOutput" readonly placeholder="#タグ #タグ "></textarea>
+                    <button type="button" class="copy-btn" id="copyHashtagBtn">ハッシュタグをコピー</button>
+                </div>
+            </div>
         </div>
 
-        
         <div class="preview-panel">
             <h2>カードプレビュー</h2>
             <div class="card-preview">
@@ -60,5 +103,37 @@
     </div>
 
     <script src="script.js"></script>
+    <script>
+        // ハッシュタグ生成ロジック
+        const hashtagInput = document.getElementById('hashtagInput');
+        const hashtagOutput = document.getElementById('hashtagOutput');
+        const copyBtn = document.getElementById('copyHashtagBtn');
+
+        hashtagInput.addEventListener('input', () => {
+            const lines = hashtagInput.value.split(/\r?\n/);
+            // 空行を除外して、各行の頭に#を付け、末尾に半角スペースを追加
+            const formatted = lines
+                .filter(line => line.trim() !== "")
+                .map(line => `#${line.trim()} `)
+                .join("");
+            
+            hashtagOutput.textContent = formatted;
+        });
+
+        copyBtn.addEventListener('click', () => {
+            const text = hashtagOutput.textContent;
+            if (!text) return;
+
+            navigator.clipboard.writeText(text).then(() => {
+                const originalText = copyBtn.textContent;
+                copyBtn.textContent = "コピー完了！";
+                setTimeout(() => {
+                    copyBtn.textContent = originalText;
+                }, 2000);
+            }).catch(err => {
+                alert("コピーに失敗しました。直接選択してコピーしてください。");
+            });
+        });
+    </script>
 </body>
 </html>
